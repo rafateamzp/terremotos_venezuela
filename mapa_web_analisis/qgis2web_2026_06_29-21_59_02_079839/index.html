@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/L.Control.Locate.min.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
+        <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+        </style>
+        <title>Análisis de prioridad de atención terremotos Venezuela</title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/L.Control.Locate.min.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="data/daos_caraballeda_3.js"></script>
+        <script src="data/daos_la_guaira_macuto_4.js"></script>
+        <script src="data/daos_catia_la_mar_5.js"></script>
+        <script>
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        }).fitBounds([[10.512907181123408,-67.1175314956061],[10.667058614673694,-66.80341542467575]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/qgis2web/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var title = new L.Control({'position':'topleft'});
+        title.onAdd = function (map) {
+            this._div = L.DomUtil.create('div', 'info');
+            this.update();
+            return this._div;
+        };
+        title.update = function () {
+            this._div.innerHTML = '<h2>Análisis de prioridad de atención terremotos Venezuela</h2>';
+        };
+        title.addTo(map);
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        L.control.locate({locateOptions: {maxZoom: 19}}).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'meters',
+            secondaryLengthUnit: 'kilometers',
+            primaryAreaUnit: 'sqmeters',
+            secondaryAreaUnit: 'hectares'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_GoogleSatelliteHybrid_1');
+        map.getPane('pane_GoogleSatelliteHybrid_1').style.zIndex = 401;
+        var layer_GoogleSatelliteHybrid_1 = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+            pane: 'pane_GoogleSatelliteHybrid_1',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 28,
+        });
+        layer_GoogleSatelliteHybrid_1;
+        map.addLayer(layer_GoogleSatelliteHybrid_1);
+        map.createPane('pane_GoogleTerrain_2');
+        map.getPane('pane_GoogleTerrain_2').style.zIndex = 402;
+        var layer_GoogleTerrain_2 = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+            pane: 'pane_GoogleTerrain_2',
+            opacity: 1.0,
+            attribution: '<a href="https://www.google.at/permissions/geoguidelines/attr-guide.html">Map data ©2015 Google</a>',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 20
+        });
+        layer_GoogleTerrain_2;
+        map.addLayer(layer_GoogleTerrain_2);
+        function pop_daos_caraballeda_3(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">id</th>\
+                        <td>' + (feature.properties['id'] !== null ? autolinker.link(String(feature.properties['id']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño 0m</th>\
+                        <td>' + (feature.properties['damage_pct_0m'] !== null ? autolinker.link(String(feature.properties['damage_pct_0m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño buffer 10m</th>\
+                        <td>' + (feature.properties['damage_pct_10m'] !== null ? autolinker.link(String(feature.properties['damage_pct_10m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño buffer 20m</th>\
+                        <td>' + (feature.properties['damage_pct_20m'] !== null ? autolinker.link(String(feature.properties['damage_pct_20m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">gravedad del daño</th>\
+                        <td class="visible-with-data" id="severidad">' + (feature.properties['severidad'] !== null ? autolinker.link(String(feature.properties['severidad']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">urgencia de atención</th>\
+                        <td class="visible-with-data" id="Urgencia">' + (feature.properties['Urgencia'] !== null ? autolinker.link(String(feature.properties['Urgencia']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_daos_caraballeda_3_0(feature) {
+            switch(String(feature.properties['Urgencia'])) {
+                case 'Atención inmediata':
+                    return {
+                pane: 'pane_daos_caraballeda_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(227,26,28,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Prioridad media-alta':
+                    return {
+                pane: 'pane_daos_caraballeda_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,115,1,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Revisión secundaria':
+                    return {
+                pane: 'pane_daos_caraballeda_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(247,215,0,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Sin priodidad operativa':
+                    return {
+                pane: 'pane_daos_caraballeda_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(43,131,19,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Revisión en campo':
+                    return {
+                pane: 'pane_daos_caraballeda_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(23,33,230,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_daos_caraballeda_3');
+        map.getPane('pane_daos_caraballeda_3').style.zIndex = 403;
+        map.getPane('pane_daos_caraballeda_3').style['mix-blend-mode'] = 'normal';
+        var layer_daos_caraballeda_3 = new L.geoJson(json_daos_caraballeda_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_daos_caraballeda_3',
+            layerName: 'layer_daos_caraballeda_3',
+            pane: 'pane_daos_caraballeda_3',
+            onEachFeature: pop_daos_caraballeda_3,
+            style: style_daos_caraballeda_3_0,
+        });
+        bounds_group.addLayer(layer_daos_caraballeda_3);
+        map.addLayer(layer_daos_caraballeda_3);
+        function pop_daos_la_guaira_macuto_4(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">id</th>\
+                        <td>' + (feature.properties['id'] !== null ? autolinker.link(String(feature.properties['id']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño 0m</th>\
+                        <td>' + (feature.properties['damage_pct_0m'] !== null ? autolinker.link(String(feature.properties['damage_pct_0m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño buffer 10m</th>\
+                        <td>' + (feature.properties['damage_pct_10m'] !== null ? autolinker.link(String(feature.properties['damage_pct_10m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño buffer 20m</th>\
+                        <td>' + (feature.properties['damage_pct_20m'] !== null ? autolinker.link(String(feature.properties['damage_pct_20m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">gravedad del daño</th>\
+                        <td class="visible-with-data" id="severidad">' + (feature.properties['severidad'] !== null ? autolinker.link(String(feature.properties['severidad']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">urgencia de atención</th>\
+                        <td class="visible-with-data" id="Urgencia">' + (feature.properties['Urgencia'] !== null ? autolinker.link(String(feature.properties['Urgencia']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_daos_la_guaira_macuto_4_0(feature) {
+            switch(String(feature.properties['Urgencia'])) {
+                case 'Atención inmediata':
+                    return {
+                pane: 'pane_daos_la_guaira_macuto_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(227,26,28,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Prioridad media-alta':
+                    return {
+                pane: 'pane_daos_la_guaira_macuto_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,115,1,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Sin prioridad operativa':
+                    return {
+                pane: 'pane_daos_la_guaira_macuto_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(43,131,19,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_daos_la_guaira_macuto_4');
+        map.getPane('pane_daos_la_guaira_macuto_4').style.zIndex = 404;
+        map.getPane('pane_daos_la_guaira_macuto_4').style['mix-blend-mode'] = 'normal';
+        var layer_daos_la_guaira_macuto_4 = new L.geoJson(json_daos_la_guaira_macuto_4, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_daos_la_guaira_macuto_4',
+            layerName: 'layer_daos_la_guaira_macuto_4',
+            pane: 'pane_daos_la_guaira_macuto_4',
+            onEachFeature: pop_daos_la_guaira_macuto_4,
+            style: style_daos_la_guaira_macuto_4_0,
+        });
+        bounds_group.addLayer(layer_daos_la_guaira_macuto_4);
+        map.addLayer(layer_daos_la_guaira_macuto_4);
+        function pop_daos_catia_la_mar_5(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">id</th>\
+                        <td class="visible-with-data" id="id">' + (feature.properties['id'] !== null ? autolinker.link(String(feature.properties['id']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño 0m</th>\
+                        <td>' + (feature.properties['damage_pct_0m'] !== null ? autolinker.link(String(feature.properties['damage_pct_0m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño buffer 10m</th>\
+                        <td class="visible-with-data" id="damage_pct_10m">' + (feature.properties['damage_pct_10m'] !== null ? autolinker.link(String(feature.properties['damage_pct_10m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">porcentaje de daño buffer 20m</th>\
+                        <td>' + (feature.properties['damage_pct_20m'] !== null ? autolinker.link(String(feature.properties['damage_pct_20m']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">gravedad del daño</th>\
+                        <td>' + (feature.properties['gravedad'] !== null ? autolinker.link(String(feature.properties['gravedad']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">urgencia de atención</th>\
+                        <td class="visible-with-data" id="Urgencia">' + (feature.properties['Urgencia'] !== null ? autolinker.link(String(feature.properties['Urgencia']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_daos_catia_la_mar_5_0(feature) {
+            switch(String(feature.properties['Urgencia'])) {
+                case 'Atención inmediata':
+                    return {
+                pane: 'pane_daos_catia_la_mar_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(227,26,28,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Prioridad media-alta':
+                    return {
+                pane: 'pane_daos_catia_la_mar_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,115,1,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'revisión secundaria':
+                    return {
+                pane: 'pane_daos_catia_la_mar_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(247,215,0,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'sin prioridad operativa':
+                    return {
+                pane: 'pane_daos_catia_la_mar_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(43,131,19,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'revisión en campo':
+                    return {
+                pane: 'pane_daos_catia_la_mar_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(13,24,227,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_daos_catia_la_mar_5');
+        map.getPane('pane_daos_catia_la_mar_5').style.zIndex = 405;
+        map.getPane('pane_daos_catia_la_mar_5').style['mix-blend-mode'] = 'normal';
+        var layer_daos_catia_la_mar_5 = new L.geoJson(json_daos_catia_la_mar_5, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_daos_catia_la_mar_5',
+            layerName: 'layer_daos_catia_la_mar_5',
+            pane: 'pane_daos_catia_la_mar_5',
+            onEachFeature: pop_daos_catia_la_mar_5,
+            style: style_daos_catia_la_mar_5_0,
+        });
+        bounds_group.addLayer(layer_daos_catia_la_mar_5);
+        map.addLayer(layer_daos_catia_la_mar_5);
+        const url = {"Nominatim OSM": "https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&",
+        "France BAN": "https://api-adresse.data.gouv.fr/search/?"}
+        var photonControl = L.control.photon({
+            url: url["Nominatim OSM"],
+            feedbackLabel: '',
+            position: 'topleft',
+            includePosition: true,
+            initial: true,
+            // resultsHandler: myHandler,
+        }).addTo(map);
+        photonControl._container.childNodes[0].style.borderRadius="10px"
+        // Create a variable to store the geoJSON data
+        var x = null;
+        // Create a variable to store the marker
+        var marker = null;
+        // Add an event listener to the Photon control to create a marker from the returned geoJSON data
+        var z = null;
+        photonControl.on('selected', function(e) {
+            console.log(photonControl.search.resultsContainer);
+            if (x != null) {
+                map.removeLayer(obj3.marker);
+                map.removeLayer(x);
+            }
+            obj2.gcd = e.choice;
+            x = L.geoJSON(obj2.gcd).addTo(map);
+            var label = typeof obj2.gcd.properties.label === 'undefined' ? obj2.gcd.properties.display_name : obj2.gcd.properties.label;
+            obj3.marker = L.marker(x.getLayers()[0].getLatLng()).bindPopup(label).addTo(map);
+            map.setView(x.getLayers()[0].getLatLng(), 17);
+            z = typeof e.choice.properties.label === 'undefined'? e.choice.properties.display_name : e.choice.properties.label;
+            console.log(e);
+            e.target.input.value = z;
+        });
+        var search = document.getElementsByClassName("leaflet-photon leaflet-control")[0];
+        search.classList.add("leaflet-control-search")
+        search.style.display = "flex";
+        search.style.backgroundColor="rgba(255,255,255,0.5)" 
+
+        // Create the new button element
+        var button = document.createElement("div");
+        button.id = "gcd-button-control";
+        button.className = "gcd-gl-btn fa fa-search search-button";
+
+        // Insert the button at the beginning of the search control
+        search.insertBefore(button, search.firstChild);
+        last = search.lastChild;
+        last.style.display = "none";
+        button.addEventListener("click", function (e) {
+            if (last.style.display === "none") {
+                last.style.display = "block";
+            } else {
+                last.style.display = "none";
+            }
+        });
+        var overlaysTree = [
+        {label: '<b>_analisis_prioridad_atención</b>',  selectAllCheckbox: true, children: [
+            {label: 'daños_catia_la_mar<br /><table><tr><td style="text-align: center;"><img src="legend/daos_catia_la_mar_5_Atencióninmediata0.png" /></td><td>Atención inmediata</td></tr><tr><td style="text-align: center;"><img src="legend/daos_catia_la_mar_5_Prioridadmediaalta1.png" /></td><td>Prioridad media-alta</td></tr><tr><td style="text-align: center;"><img src="legend/daos_catia_la_mar_5_revisiónsecundaria2.png" /></td><td>revisión secundaria</td></tr><tr><td style="text-align: center;"><img src="legend/daos_catia_la_mar_5_sinprioridadoperativa3.png" /></td><td>sin prioridad operativa</td></tr><tr><td style="text-align: center;"><img src="legend/daos_catia_la_mar_5_revisiónencampo4.png" /></td><td>revisión en campo</td></tr></table>', layer: layer_daos_catia_la_mar_5},
+            {label: 'daños_la_guaira_macuto<br /><table><tr><td style="text-align: center;"><img src="legend/daos_la_guaira_macuto_4_Atencióninmediata0.png" /></td><td>Atención inmediata</td></tr><tr><td style="text-align: center;"><img src="legend/daos_la_guaira_macuto_4_Prioridadmediaalta1.png" /></td><td>Prioridad media-alta</td></tr><tr><td style="text-align: center;"><img src="legend/daos_la_guaira_macuto_4_Sinprioridadoperativa2.png" /></td><td>Sin prioridad operativa</td></tr></table>', layer: layer_daos_la_guaira_macuto_4},
+            {label: 'daños_caraballeda<br /><table><tr><td style="text-align: center;"><img src="legend/daos_caraballeda_3_Atencióninmediata0.png" /></td><td>Atención inmediata</td></tr><tr><td style="text-align: center;"><img src="legend/daos_caraballeda_3_Prioridadmediaalta1.png" /></td><td>Prioridad media-alta</td></tr><tr><td style="text-align: center;"><img src="legend/daos_caraballeda_3_Revisiónsecundaria2.png" /></td><td>Revisión secundaria</td></tr><tr><td style="text-align: center;"><img src="legend/daos_caraballeda_3_Sinpriodidadoperativa3.png" /></td><td>Sin priodidad operativa</td></tr><tr><td style="text-align: center;"><img src="legend/daos_caraballeda_3_Revisiónencampo4.png" /></td><td>Revisión en campo</td></tr></table>', layer: layer_daos_caraballeda_3},]},
+            {label: "Google Terrain", layer: layer_GoogleTerrain_2, radioGroup: 'bm' },
+            {label: "Google Satellite Hybrid", layer: layer_GoogleSatelliteHybrid_1, radioGroup: 'bm' },]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: true,
+        });
+        lay.addTo(map);
+        setBounds();
+        </script>        
+    </body>
+</html>
